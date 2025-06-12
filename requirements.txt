@@ -1,0 +1,6 @@
+streamlit
+forex-python
+qrcode
+pillow
+pyzbar
+pandas
