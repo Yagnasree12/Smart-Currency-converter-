@@ -1,6 +1,5 @@
 streamlit
 forex-python
+opencv-python-headless
 qrcode
-pillow
-pyzbar
-pandas
+numpy
