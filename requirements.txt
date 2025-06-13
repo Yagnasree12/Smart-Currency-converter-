@@ -1,5 +1,7 @@
 streamlit
 forex-python
 opencv-python-headless
-qrcode
 numpy
+qrcode
+Pillow
+matplotlib
