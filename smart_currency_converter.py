@@ -1,91 +1,115 @@
-
 import streamlit as st
 from forex_python.converter import CurrencyRates
-import datetime
-import pandas as pd
+from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
 import qrcode
 from io import BytesIO
-from pyzbar.pyzbar import decode
+import smtplib
+from email.message import EmailMessage
+import cv2
+import numpy as np
 from PIL import Image
-import base64
 
-st.set_page_config(page_title="Smart Currency Converter", layout="centered")
+# ------------------ Streamlit App Config ------------------
+st.set_page_config(page_title="Smart Currency Converter", page_icon="💱", layout="centered")
 
-# --- Theme Toggle ---
-theme = st.radio("Choose Theme", ["Light", "Dark"])
-if theme == "Dark":
-    st.markdown("""<style>body { background-color: #111; color: white; }</style>""", unsafe_allow_html=True)
-
-# --- Header ---
 st.title("🌐 Smart Currency Converter")
-st.markdown("Convert currencies in real-time, view trends, scan QR codes, and share results!")
+st.markdown("Convert currencies, view trends, scan QR, share via email — all in one place!")
 
-currencies = ["USD", "INR", "EUR", "JPY", "GBP", "AUD", "CAD"]
-cr = CurrencyRates()
+# ------------------ Currency Conversion ------------------
+curr = CurrencyRates()
 
-# --- Currency Converter ---
-col1, col2 = st.columns(2)
-from_currency = col1.selectbox("From", currencies, index=0)
-to_currency = col2.selectbox("To", currencies, index=1)
-amount = st.number_input("Amount", min_value=0.01, value=1.0, step=0.5)
+amount = st.number_input("💰 Enter Amount", min_value=0.0, value=1.0)
+from_currency = st.selectbox("From Currency", options=curr.get_rates("").keys(), index=26)
+to_currency = st.selectbox("To Currency", options=curr.get_rates("").keys(), index=80)
 
-# --- Convert ---
-if st.button("Convert"):
+if st.button("🔄 Convert"):
     try:
-        result = cr.convert(from_currency, to_currency, amount)
-        st.success(f"{amount} {from_currency} = {round(result, 4)} {to_currency}")
+        result = curr.convert(from_currency, to_currency, amount)
+        st.success(f"{amount:.2f} {from_currency} = {result:.2f} {to_currency}")
     except Exception as e:
-        st.error(f"Conversion failed: {str(e)}")
+        st.error("Conversion failed. Please check the currency codes or try again later.")
 
-# --- Historical Trend Chart ---
-def get_history(from_curr, to_curr):
-    today = datetime.date.today()
-    rates = []
+# ------------------ Historical Trend Chart ------------------
+def plot_currency_trend(base, target):
     dates = []
+    rates = []
     for i in range(10):
-        day = today - datetime.timedelta(days=i)
-        try:
-            rate = cr.get_rate(from_curr, to_curr, day)
-            rates.append(round(rate, 4))
-            dates.append(day.strftime("%Y-%m-%d"))
-        except:
-            continue
-    return pd.DataFrame({'Date': dates[::-1], 'Rate': rates[::-1]})
+        day = datetime.now() - timedelta(days=i)
+        rate = curr.get_rate(base, target, day)
+        dates.append(day.strftime("%d-%b"))
+        rates.append(rate)
+    dates.reverse()
+    rates.reverse()
 
-if st.button("Show Trend"):
-    df = get_history(from_currency, to_currency)
-    st.line_chart(df.set_index("Date"))
+    fig, ax = plt.subplots()
+    ax.plot(dates, rates, marker='o', linestyle='-', color='blue')
+    ax.set_title(f"{base} to {target} - Last 10 Days")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Rate")
+    st.pyplot(fig)
 
-# --- QR Code Scanner ---
-st.subheader("📷 Scan QR Code for Currency")
-uploaded = st.file_uploader("Upload QR Code Image", type=["png", "jpg", "jpeg"])
-if uploaded:
-    img = Image.open(uploaded)
-    decoded = decode(img)
-    if decoded:
-        code = decoded[0].data.decode("utf-8")
-        st.success(f"Scanned Currency: {code}")
-        if code in currencies:
-            from_currency = code
-    else:
-        st.warning("No valid QR code found.")
+if st.checkbox("📈 Show Last 10 Days Trend"):
+    plot_currency_trend(from_currency, to_currency)
 
-# --- Email Share ---
-st.subheader("✉️ Share Result via Email")
-recipient = st.text_input("Recipient Email")
-if st.button("Generate Email Link"):
-    subject = f"Currency Conversion {from_currency} to {to_currency}"
-    body = f"{amount} {from_currency} = {round(result, 4)} {to_currency}"
-    mailto_link = f"mailto:{recipient}?subject={subject}&body={body}"
-    st.markdown(f"[📩 Click to send email]({mailto_link})")
+# ------------------ QR Code Scanner ------------------
+st.subheader("📷 QR Code Scanner")
+uploaded_qr = st.file_uploader("Upload a QR code image", type=["png", "jpg", "jpeg"])
 
-# --- QR Code Generator ---
-st.subheader("📦 Generate QR for Currency Code")
-currency_for_qr = st.selectbox("Select Currency for QR", currencies)
-if st.button("Generate QR Code"):
-    qr = qrcode.make(currency_for_qr)
+def decode_qr_from_image(uploaded_image):
+    file_bytes = np.asarray(bytearray(uploaded_image.read()), dtype=np.uint8)
+    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    detector = cv2.QRCodeDetector()
+    data, bbox, _ = detector.detectAndDecode(image)
+    return data if data else "No QR code detected."
+
+if uploaded_qr:
+    st.image(uploaded_qr, caption="Uploaded QR Code")
+    decoded = decode_qr_from_image(uploaded_qr)
+    st.success(f"Detected Text: {decoded}")
+
+# ------------------ QR Code Generator ------------------
+st.subheader("🔲 Generate QR Code")
+qr_text = st.text_input("Enter text/currency to generate QR")
+if st.button("Generate QR"):
+    qr_img = qrcode.make(qr_text)
     buf = BytesIO()
-    qr.save(buf)
-    img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-    st.image(qr, caption=f"QR for {currency_for_qr}")
-    st.markdown(f"![QR](data:image/png;base64,{img_b64})")
+    qr_img.save(buf)
+    st.image(qr_img, caption="Generated QR Code")
+    st.download_button("Download QR Code", buf.getvalue(), file_name="qr_code.png")
+
+# ------------------ Email Share ------------------
+st.subheader("✉️ Share via Email")
+sender = st.text_input("Your Email")
+receiver = st.text_input("Receiver's Email")
+if st.button("Send Email"):
+    if sender and receiver:
+        try:
+            msg = EmailMessage()
+            msg['Subject'] = "Currency Conversion Result"
+            msg['From'] = sender
+            msg['To'] = receiver
+            msg.set_content(f"{amount:.2f} {from_currency} = {result:.2f} {to_currency}")
+            # Configure this with your real email/password or use a secure app-specific password
+            with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
+                smtp.starttls()
+                smtp.login(sender, "your-app-password")  # Use app-specific password
+                smtp.send_message(msg)
+            st.success("Email sent successfully!")
+        except Exception as e:
+            st.error("Failed to send email. Check credentials or SMTP settings.")
+    else:
+        st.warning("Please fill in both email fields.")
+
+# ------------------ Theme Toggle ------------------
+st.sidebar.title("🌓 Theme")
+theme = st.sidebar.radio("Choose Mode:", ["Light", "Dark"])
+if theme == "Dark":
+    st.markdown(
+        """
+        <style>
+        body { background-color: #0e1117; color: white; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
